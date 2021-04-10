@@ -1,4 +1,26 @@
 /* UICustomizer START */
+
+// ALways make us able to get the viewport side
+$('head').prepend('<link rel="stylesheet" href="./plugin/uicustomizer/static/css/loader.css">');
+
+// Preloader to  make it pretty
+$('head').prepend('<meta id="UICViewport" name="viewport" content="width=device-width, initial-scale=1.0">');
+
+// Set theme onload
+var UICPreLoadTheme  = "default";
+if (Modernizr.localstorage){
+    UICPreLoadTheme = localStorage['plugin.uicustomizer.theme'];
+    if (UICPreLoadTheme == undefined || UICPreLoadTheme == "" || UICPreLoadTheme == null){
+        UICPreLoadTheme = "default";
+    }
+}
+$('body').append('<link class="UICThemeCSS" rel="stylesheet" href="./plugin/uicustomizer/static/themes/css/active.css?theme='+UICPreLoadTheme+'">');
+delete UICPreLoadTheme;
+// we will remove it again if user has opted out - this will just make it more clean on showing the UI
+$('body').append('<link class="UICBSResp" rel="stylesheet" href="./plugin/uicustomizer/static/css/bootstrap-responsive.css">');
+
+
+// Now we start
 $(function() {
     function UICustomizerViewModel(parameters) {
         var self = this;
@@ -18,6 +40,12 @@ $(function() {
         self.settingsBeenShown = false;
 
         self.getReturnData = false;
+
+        self.ThemesLoaded = false;
+        self.ThemesInternalURL = './plugin/uicustomizer/static/themes/';
+        self.ThemesExternalURL = 'https://lazemss.github.io/OctoPrint-UICustomizerThemes/';
+        self.ThemesBaseURL = self.ThemesInternalURL;
+
 
         // timer for resize fix modal
         self.modalTimer = null;
@@ -49,7 +77,7 @@ $(function() {
                                 <a class="accordion-toggle" data-toggle="collapse" data-target="#UICGcodeVWidgetContainer">\
                                     <i class="fab icon-black fa-codepen"></i> Gcode\
                                 </a>\
-                                <div class="btn-group UICWidgetSelector"><a class="btn btn-small dropdown-toggle" data-toggle="dropdown" href="#">Zoom:<span id="UICGcodeVWidgetZL"></span><span class="caret"></span></a><ul class="dropdown-menu"><li><a href="#">4</a></li><li><a href="#">3</a></li><li><a href="#">2</a></li><li><a href="#">1</a></li></ul></div>\
+                                <div class="btn-group UICWidgetSelector"><a class="btn btn-small dropdown-toggle" data-toggle="dropdown" href="#">Zoom:<span id="UICGcodeVWidgetZL"></span><span class="caret"></span></a><ul class="dropdown-menu"><li><a href="javascript:void(0);" data-zoomlvl=4>4</a></li><li><a href="javascript:void(0);" data-zoomlvl=3>3</a></li><li><a href="javascript:void(0);" data-zoomlvl=2>2</a></li><li><a href="javascript:void(0);" data-zoomlvl=1.5>1.5</a></li><li><a href="javascript:void(0);" data-zoomlvl=1>1</a></li></ul></div>\
                             </div>\
                             <div id="UICGcodeVWidgetContainer" class="accordion-body in collapse">\
                                 <div class="accordion-inner">\
@@ -68,6 +96,9 @@ $(function() {
         // Store sort
         self.SortableSet = [];
 
+        // Load theme first up when ready
+        self.curTheme = "default";
+
         // ------------------------------------------------------------------------------------------------------------------------
         // Quick debug
         self.logToConsole = function(msg){
@@ -82,6 +113,25 @@ $(function() {
         // ------------------------------------------------------------------------------------------------------------------------
         // Initial bound and init the custom layout
         self.onAllBound = function(){
+            // Cleanup everything if using touch ui
+            if (typeof OctoPrint.coreui.viewmodels.touchUIViewModel != "undefined"){
+                if(window.location.hash == "#touch"){
+                    OctoPrint.coreui.viewmodels.touchUIViewModel.DOM.storage.set('active',true);
+                    $('#page-container-loading-header').html($('#page-container-loading-header').html()+ "<br><small>Disabling UI Customizer..</small>")
+                    $('link.UICThemeCSS,link.UICBSResp').remove();
+                    return;
+                }else if(OctoPrint.coreui.viewmodels.touchUIViewModel.DOM.storage.get('active') == true){
+                    $('#page-container-loading-header').html($('#page-container-loading-header').html()+ "<br><small>Disabling Touch UI and reloading...</small>")
+                    OctoPrint.coreui.viewmodels.touchUIViewModel.DOM.storage.set('active',false);
+                    document.location.hash = "";
+                    document.location.reload();
+                    return;
+                }
+            }
+
+            // Load from storage
+            self.curTheme = self.getStorage('theme');
+
             // Store WebCam
             self.onWebCamOrg = OctoPrint.coreui.viewmodels.controlViewModel.onWebcamLoaded;
             self.onWebCamErrorOrg = OctoPrint.coreui.viewmodels.controlViewModel.onWebcamErrored;
@@ -117,17 +167,71 @@ $(function() {
                 $('div.UICmainTabs').removeClass('span10');
                 $('div#tabs_content div.tab-pane:not("#tab_plugin_consolidate_temp_control") > div > div.span6').unwrap();
                 $('div#tabs_content div.tab-pane:not("#tab_plugin_consolidate_temp_control") > div.span6').children().unwrap();
-                // More hacks to keep people happy
-                window.setTimeout(function() {
-                    $('#temperature-table .btn').addClass('btn-mini');
-                    $('#temperature-table').addClass('UICFix table-condensed');
-                }, 1000);
+            }
+
+            // Rewrite the tab selector for settings - https://github.com/LazeMSS/OctoPrint-UICustomizer/issues/95
+            var prevTab = OctoPrint.coreui.viewmodels.settingsViewModel.selectTab;
+            OctoPrint.coreui.viewmodels.settingsViewModel.selectTab = function(tab){
+                if ($('body').hasClass('UICResponsiveMode')){
+                    if (tab != undefined) {
+                        if (tab[0] != "#") { tab = "#" + tab; }
+                        $('#UICsettingsMenu a[href="'+tab+'"]').tab('show')
+                    } else {
+                        $('#UICsettingsMenu a[data-toggle="tab"]:first').tab('show')
+                    }
+                }else{
+                    prevTab(tab);
+                }
             }
 
             // Observe theme changes
             OctoPrint.coreui.viewmodels.settingsViewModel.appearance_color.subscribe(function(color) {
                 self.updateStandardTheme(color);
             });
+            if (OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.hasOwnProperty('themeify')){
+                OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.themeify.theme.subscribe(function(theme) {
+                    self.updateThemify(theme);
+                });
+                OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.themeify.enabled.subscribe(function(enabled) {
+                    self.updateThemify(OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.themeify.theme());
+                });
+            }
+
+            // Remove hardcode css to make it easier to use skins
+            var styleSrcs = [];
+            var cssLookUp = [
+                'static/webassets/packed_core.css',
+                'static/css/octoprint.css',
+                'static/webassets/packed_plugins.css',
+                'plugin/navbartemp/static/css/navbartemp.css'
+            ];
+            var cssFind = null;
+            $.each(cssLookUp,function(i,cval){
+                if ((cssFind = self.getStyleSheet(cval)) != null){
+                    styleSrcs.push(cssFind);
+                }
+            });
+            if (styleSrcs.length){
+                $.each(styleSrcs,function(idx,styleSrc){
+                    $.each(styleSrc.sheet.cssRules,function(index,val){
+                        if (this.selectorText != undefined){
+                            if (this.selectorText == ".octoprint-container .accordion-heading .accordion-heading-button a"){
+                                this.selectorText = ".octoprint-container .accordion-heading .accordion-heading-button >a";
+                            }
+                            if (this.selectorText.indexOf('#navbar .navbar-inner .nav') != -1){
+                                this.selectorText = '#navbardisabledByUIC'
+                            }
+                            if (this.selectorText == "#navbar .navbar-inner"){
+                                this.selectorText = '#navbardisabledByUIC'
+                            }
+                            // Fix coding for navbar temp
+                            if (this.selectorText == "#navbar_plugin_navbartemp .navbar-text"){
+                                this.selectorText = '#navbardisabledByUIC'
+                            }
+                        }
+                    })
+                });
+            }
 
             // Check these plugins
             var knowPluginIssues = {
@@ -140,10 +244,11 @@ $(function() {
                         }
                     }
                 },
+                /*
                 'consolidate_temp_control': {
                     'text': 'Running the plugins Consolidate Temp Control and UI Customizer together can cause problems.\n\nThe UI Customizer plugin has tried to fix these problems but there might be layout issues.',
                     'action' : null
-                },
+                },*/
             }
 
             // Notify options main options
@@ -192,10 +297,28 @@ $(function() {
                 }
             });
 
+             // Fix height problem on first run
+            $('div.UICMainMenu a.dropdown-toggle').one('click.UICMainMenu',function(){
+                $('div.UICMainMenu').css({'height':'auto'});
+            });
+
             // Refresh all
             window.setTimeout(function() {
                 $(window).trigger('resize');
             },500);
+
+            // Final check to make sure CSS is not broken by other plugins etc.
+            if($('link.UICBSResp').length || $('link.UICThemeCSS').length){
+                window.setTimeout(function() {
+                    // Make sure responsive and themes are last
+                    var allCSS = $('link[rel="stylesheet"]');
+                    if ((allCSS.length-1) > allCSS.index($('link.UICBSResp')) || (allCSS.length-2) > allCSS.index($('link.UICThemeCSS'))){
+                        $('link.UICThemeCSS').appendTo('body');
+                        $('link.UICBSResp').appendTo('body');
+                    };
+                },1000);
+            }
+
         }
 
 
@@ -220,6 +343,8 @@ $(function() {
             // Make it fluid
             self.set_fluidLayout(settingsPlugin.fluidLayout());
 
+            // Set theme on startup
+            self.set_theme(settingsPlugin.theme(),false);
 
             // Run in responsive mode
             self.set_responsiveMode(settingsPlugin.responsiveMode());
@@ -245,14 +370,94 @@ $(function() {
             // Hide main cams
             self.set_hideMainCam(self.settings.settings.plugins.uicustomizer.hideMainCam());
 
-            // addWebCamZoom
+            // add webcam zoom option
             self.set_addWebCamZoom(settingsPlugin.addWebCamZoom());
 
-            self.updateStandardTheme(OctoPrint.coreui.viewmodels.settingsViewModel.settings.appearance.color());
+            // Full widh Gcode
+            self.set_gcodeFullWidth(settingsPlugin.gcodeFullWidth());
+
+            // Full height files
+            self.set_filesFullHeight(settingsPlugin.filesFullHeight());
+
+            // Compress the temperature controls
+            self.set_compressTempControls(settingsPlugin.compressTempControls());
+
+            self.set_customCSS(settingsPlugin.customCSS());
 
         }
 
+        // ------------------------------------------------------------------------------------------------------------------------
+        self.set_theme = function(themeName,preview){
+            // if empty we try the others - else we cleanup from everything else
+            if (themeName == "default" || themeName == null){
+                $('html').removeClass('UICCustomTheme');
+                if (self.updateThemify(null) == false){
+                    self.updateStandardTheme(OctoPrint.coreui.viewmodels.settingsViewModel.settings.appearance.color());
+                };
+            }else{
+                $('html').addClass('UICDefaultTheme UICCustomTheme');
+                $('#UICCustStandardTheme,#UICCustThemeify').remove();
+            }
+            if (self.curTheme != themeName && themeName != null){
+                self.logToConsole("Loading theme: " + themeName + " - old theme: " + self.curTheme);
+                // Show loading UI if slow
+                var hideLoader = null;
+                if (!$('#page-container-loading:visible').length){
+                    hideLoader = setTimeout(function(){
+                         $('#page-container-loading').show();
+                    }, 200);
+                }
+
+                // Remove the current css to trigger reload
+                $('link.UICThemeCSS').remove();
+
+                var themeURL = self.ThemesBaseURL+"/css/"+themeName+'.css?theme='+themeName;
+
+                // Preview or for real?
+                if (!preview){
+                    // Store it for easier loading
+                    self.setStorage('theme',themeName);
+                }
+
+                // Load style sheet
+                var styleCSS = $('<link class="UICThemeCSS" rel="stylesheet"/>');
+
+                // Load handler
+                styleCSS.on('load',function (){
+                    // Hide loader
+                    if (hideLoader != null){
+                        clearTimeout(hideLoader);
+                        hideLoader = null;
+                        setTimeout(function(){
+                            $('#page-container-loading').fadeOut();
+                        },300);
+                    }
+                }).on('error',function (){
+                    if (hideLoader != null){
+                        clearTimeout(hideLoader);
+                        hideLoader = null;
+                        $('#page-container-loading').fadeOut();
+                    }
+                });
+                styleCSS.attr('href',themeURL);
+
+                // Insert to the document at the right place
+                if ($('link.UICBSResp').length){
+                    styleCSS.insertBefore($('link.UICBSResp'));
+                }else{
+                    $('body').append(styleCSS);
+                }
+
+                self.curTheme = themeName;
+            }
+        }
+
+        // ------------------------------------------------------------------------------------------------------------------------
         self.updateStandardTheme = function(curTheme){
+            if (self.settings.settings.plugins.uicustomizer.theme() != null && self.settings.settings.plugins.uicustomizer.theme() != "default"){
+                $('#UICCustStandardTheme').remove();
+                return;
+            }
             if (curTheme == "default"){
                 // Cleanup
                 self.logToConsole("Removing standard theme mods");
@@ -264,16 +469,23 @@ $(function() {
                 if ($('#UICCustStandardTheme').length){
                     self.logToConsole("Standard theme mods founnd");
                 }else{
-                    self.logToConsole("Standard theme added");
+                    self.logToConsole("Standard theme mods added");
                     $('head').append('<style type="text/css" id="UICCustStandardTheme"/>');
                 }
-                var headStyle = $('#UICCustStandardTheme');
                 // Find the style sheet
                 var hasCompact = $('div.UICMainMenu').hasClass('UICCompactMenu');
                 var hasResponsive = $('body').hasClass('UICResponsiveMode');
-                var cleanRep = new RegExp('\.'+curTheme, "gi")
+                var cleanRep = new RegExp('\.'+curTheme, "gi");
                 var newStyle = '';
-                $.each($('link[href="/static/css/octoprint.css"][rel="stylesheet"]')[0].sheet.cssRules,function(){
+                var styleSrc = self.getStyleSheet('static/webassets/packed_core.css');
+                if (styleSrc == null){
+                    styleSrc = self.getStyleSheet('static/css/octoprint.css');
+                }
+                if (styleSrc == null){
+                    self.logToConsole("Standard theme css src not found!");
+                    return;
+                }
+                $.each(styleSrc.sheet.cssRules,function(){
                     var cssSel = this.selectorText;
                     if (cssSel != undefined && cssSel.indexOf('#navbar .navbar-inner.'+curTheme) != -1){
                         newStyle += this.cssText.replace(/#navbar/gi,'#page-container-main > div.footer').replace(cleanRep,'');
@@ -285,16 +497,104 @@ $(function() {
                         }
                     };
                 });
-                self.logToConsole(newStyle);
-                headStyle.text(newStyle)
+                newStyle = newStyle.replace(/background-image: url.+?;/gmi,'');
+
+                $('#UICCustStandardTheme').text(newStyle)
                 delete newStyle;
             }
+        }
+
+        // ------------------------------------------------------------------------------------------------------------------------
+        self.updateThemify = function(curTheme){
+            if (self.settings.settings.plugins.uicustomizer.theme() != null && self.settings.settings.plugins.uicustomizer.theme() != "default"){
+                $('#UICCustThemeify').remove();
+                return;
+            }
+            if (!OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.hasOwnProperty('themeify') || OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.themeify.enabled() == false){
+                self.logToConsole("Removing themeify theme mods");
+                $('#UICCustThemeify').remove();
+                return false;
+            }
+
+            // Remove default theme
+            $('html').removeClass('UICDefaultTheme');
+            // remove octoprint theme mods
+            $('#UICCustStandardTheme').remove();
+
+            // Get the current theme from themify
+            if (curTheme == null){
+                curTheme = OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.themeify.theme();
+            }
+            // Build our copy
+            self.logToConsole("themeify theme is: " + curTheme);
+            if ($('#UICCustThemeify').length){
+                self.logToConsole("themeify theme mods founnd");
+            }else{
+                self.logToConsole("themeify theme mods added");
+                $('head').append('<style type="text/css" id="UICCustThemeify"/>');
+            }
+
+            // Find the style sheets
+            var hasCompact = $('div.UICMainMenu').hasClass('UICCompactMenu');
+            var hasResponsive = $('body').hasClass('UICResponsiveMode');
+            var cleanRep = new RegExp('\.'+curTheme, "gi");
+            var navbarClean = new RegExp('\.themeify\.'+curTheme+' #navbar', "gi");
+            var newStyle = '';
+            var bgcolor = '';
+            var styleSrc = false;
+            var styleSrc = self.getStyleSheet('static/webassets/packed_plugins.css');
+            if (styleSrc == null){
+                styleSrc = self.getStyleSheet('plugin/themeify/static/dist/themeify.min.css');
+            }
+            if (styleSrc == null){
+                self.logToConsole("Themeify css src not found!");
+                return;
+            }
+            $.each(styleSrc.sheet.cssRules,function(){
+                var cssSel = this.selectorText;
+                if (cssSel != undefined && cssSel.indexOf('.themeify.'+curTheme+' #navbar .navbar-inner') != -1){
+                    newStyle += this.cssText.replace(navbarClean,'#page-container-main > div.footer').replace(cleanRep,'');
+                    if (hasCompact){
+                        newStyle += this.cssText.replace(/#navbar \.navbar-inner/gi,'div.UICMainMenu.UICCompactMenu').replace(cleanRep,'');
+                    }
+                    if (hasResponsive){
+                        newStyle += this.cssText.replace(/#navbar/gi,'#UICsettingsMenuNav').replace(cleanRep,'');
+                    }
+                };
+                if (bgcolor == '' && cssSel != undefined && cssSel.indexOf('.themeify.'+curTheme+' .modal') != -1 && this.cssText.indexOf('background-color') != -1){
+                    var regBack = /background-color:(.*);/gmi;;
+                    var matches = regBack.exec(this.cssText);
+                    var matchstr = matches[1]+";";
+                    bgcolor = $.trim(matchstr.slice(0, matchstr.indexOf(';')));
+                };
+            });
+            if (bgcolor != ""){
+                var bgcolorClean = bgcolor.slice(bgcolor.indexOf('(')+1);
+                bgcolorClean = bgcolorClean.slice(0,bgcolorClean.indexOf(')'));
+                newStyle += '\
+                    html.'+curTheme+' #UICsettingsMenuNav{\
+                        background-color:'+bgcolor+';\
+                        background: linear-gradient(180deg, rgba('+bgcolorClean+',1) 0px, rgba('+bgcolorClean+',1) 55px, rgba('+bgcolorClean+',0) 100%);\
+                    }\
+                ';
+            }
+            $('#UICCustThemeify').text(newStyle);
+
+            delete newStyle;
+            return true;
         }
 
         // ------------------------------------------------------------------------------------------------------------------------
         self.set_mainLayout = function(settingsPlugin){
             // Fix layout and width - using magic
             var TempCols = [...settingsPlugin.rows()];
+
+            // Check for empty object
+            if($.isEmptyObject(TempCols[0])){
+                new PNotify({title:"UI Customizer failure", type: "error","text":"Failed to load proper settings for layout.\nSorry :(","hide":false});
+                console.log(TempCols);
+                return true;
+            }
             var widths = settingsPlugin.widths();
 
             // Build only visible items in a simple array
@@ -324,6 +624,7 @@ $(function() {
                     }
                 });
             });
+
             // Remove empty right cols and bit of magic
             var cols = [];
             var colFound = false;
@@ -373,6 +674,8 @@ $(function() {
                     }else if (self.customWidgets.hasOwnProperty(val2)){
                         self.logToConsole('Adding custom widget "'+val2+'" to column '+keyoffset);
                         $(self.customWidgets[val2].dom).appendTo('div.UICCol'+keyoffset);
+                    }else{
+                        self.logToConsole('Skipping widget "'+val2+'"');
                     }
 
                     // Init custom widget
@@ -454,6 +757,43 @@ $(function() {
         }
 
 
+        self.set_gcodeFullWidth= function(enable){
+            if (enable){
+                $('#canvas_container').addClass('UICMaxi');
+            }else{
+                $('#canvas_container').removeClass('UICMaxi');
+            }
+        }
+
+        self.set_filesFullHeight = function(enable){
+             if (enable){
+                $('#files .gcode_files .scroll-wrapper').addClass('UICFullHeight');
+            }else{
+                $('#files .gcode_files .scroll-wrapper').removeClass('UICFullHeight');
+            }
+        }
+
+        self.set_compressTempControls= function(enable){
+            if (enable){
+                $('#temp').addClass('UICTempTableSmall');
+            }else{
+                $('#temp').removeClass('UICTempTableSmall');
+            }
+        }
+
+        self.set_customCSS= function(cssStr){
+            if ($.trim(cssStr) != ""){
+                // Create or update
+                if ($('#UICCustomCSSS').length){
+                    $('#UICCustomCSSS').text(cssStr);
+                }else{
+                    $('<style id="UICCustomCSSS">'+cssStr+'</style>').appendTo('body');
+                }
+            }else{
+                $('#UICCustomCSSS').remove();
+            }
+        }
+
         // ------------------------------------------------------------------------------------------------------------------------
         self.set_addWebCamZoom = function(enable){
             var streamURL = self.settings.webcam_streamUrl();
@@ -466,25 +806,27 @@ $(function() {
             var dragstart = function (event) {
                 $('#drop_overlay').addClass('UICHideHard');
                 var style = window.getComputedStyle(event.target, null);
-                event.dataTransfer.setData("text/plain",(parseInt(style.getPropertyValue("left"),10) - event.clientX) + ',' + (parseInt(style.getPropertyValue("top"),10) - event.clientY));
+                $('#drop_overlay').data('positionData',[(parseInt(style.getPropertyValue("left"),10) - event.clientX),(parseInt(style.getPropertyValue("top"),10) - event.clientY)]);
             }
-
             var drag_over = function(event) {
-                $('#drop_overlay').addClass('UICHideHard');
-                event.preventDefault();
-                return false;
+                // Avoid conflict with dropzone uploading
+                if ($('#drop_overlay').hasClass('UICHideHard')){
+                    event.preventDefault();
+                    return false;
+                }
             }
-
             var drop = function(event) {
-                var offset = event.dataTransfer.getData("text/plain").split(',');
-                var dm = document.getElementById('UICWebCamFull');
-                dm.style.left = (event.clientX + parseInt(offset[0],10)) + 'px';
-                dm.style.top = (event.clientY + parseInt(offset[1],10)) + 'px';
-                event.preventDefault();
-                $('#drop_overlay').removeClass('UICHideHard in');
-                return false;
+                // Avoid conflict with dropzone uploading
+                if(!$(event.target).hasClass('dropzone')){
+                    var offset = $('#drop_overlay').data('positionData');
+                    var dm = document.getElementById('UICWebCamFull');
+                    dm.style.left = (event.clientX + parseInt(offset[0],10)) + 'px';
+                    dm.style.top = (event.clientY + parseInt(offset[1],10)) + 'px';
+                    $('#drop_overlay').removeClass('UICHideHard in');
+                    event.preventDefault();
+                    return false;
+                }
             }
-
 
             // HLS handling
             var hlsCam = false;
@@ -525,12 +867,17 @@ $(function() {
                     zoomclick.trigger('click.UICWebCamClick');
                 });
                 zoomclick.off('click.UICWebCamClick').on('click.UICWebCamClick',function(){
+                    var streamURL = self.settings.webcam_streamUrl();
+                    var hlsCam = false;
+                    if (/.m3u8/i.test(streamURL)){
+                        hlsCam = true;
+                    }
                     $('.UIWebcamZoomSrc').hide();
                     // Remove previous if any
                     $('#UICWebCamFull').remove();
 
                     // Append floating cam to body
-                    $('body').append('<div id="UICWebCamFull" draggable="true" class="UICWebcam"><div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate">Loading webcam&hellip;</span></div><div id="UICWebCamShrink" class="UICWebCamClick"><a href="javascript: void(0);"><i class="fas fa-compress"></i></a></div><div class="UICWebCamTarget"></div></div>');
+                    $('body').append('<div id="UICWebCamFull" draggable="true" class="UICWebcam"><div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate text-info">Loading webcam&hellip;</span></div><div id="UICWebCamShrink" class="UICWebCamClick"><a href="javascript: void(0);"><i class="fas fa-compress"></i></a></div><div class="UICWebCamTarget"></div></div>');
                     $('#UICWebCamShrink').hide();
 
                     // Set top offset
@@ -662,17 +1009,47 @@ $(function() {
 
                     // Start draghandler
                     var dm = document.getElementById('UICWebCamFull');
-                    dm.addEventListener('dragstart',dragstart,false);
-                    document.body.addEventListener('dragover',drag_over,false);
-                    document.body.addEventListener('drop',drop,false);
+                    $('#UICWebCamFull').on('dragstart.UICCam',dragstart);
+                    $('body').on('dragover.UICCam',drag_over);
+                    $('body').on('drop.UICCam',drop);
 
                     // Close again
                     $('#UICWebCamShrink').one('click',function(){
+                        $('#UICWebCamFull').off('dragstart.UICCam');
+                        $('body').off('dragover.UICCam');
+                        $('body').off('drop.UICCam');
+                        $('#drop_overlay').removeClass('UICHideHard in');
                         $('.UIWebcamZoomSrc').show();
                         $('#UICWebCamFull').remove();
                     });
+
+                    // Todo: add styling for fullscreen and add overlays with print info and gcode preview etc. https://www.w3schools.com/howto/howto_js_fullscreen.asp
+                    // self.openFullscreen(document.getElementById('UICWebCamFull'));
                 });
             });
+        }
+
+        /*https://www.w3schools.com/howto/howto_js_fullscreen.asp*/
+        /* View in fullscreen */
+        self.openFullscreen = function(elem){
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) { /* Safari */
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) { /* IE11 */
+                elem.msRequestFullscreen();
+            }
+        }
+
+        /* Close fullscreen */
+        self.closeFullscreen = function(){
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) { /* Safari */
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) { /* IE11 */
+                document.msExitFullscreen();
+            }
         }
 
         // ------------------------------------------------------------------------------------------------------------------------
@@ -712,10 +1089,15 @@ $(function() {
                     $('#UICGcodeVWidget  ul.dropdown-menu li.active').removeClass('active');
                     $(this).parent().addClass('active');
                     $('#UICGcodeVWidgetZL').text($(this).text());
-                    $('#UICGcodeVWidget').data('zoomlvl',$(this).text());
+                    $('#UICGcodeVWidget').data('zoomlvl',$(this).data('zoomlvl'));
+                    // Save the settings
+                    OctoPrint.settings.savePluginSettings('uicustomizer',{'gcodeZoom':$(this).data('zoomlvl')})
                 });
-                // Pick the first one as default
-                $('#UICGcodeVWidget ul.dropdown-menu a:first').trigger('click');
+                if (typeof self.settings.settings.plugins.uicustomizer.gcodeZoom == "undefined" && $('#UICGcodeVWidget ul.dropdown-menu a[data-zoomlvl="'+self.settings.settings.plugins.uicustomizer.gcodeZoom()+'"]').length == 0){
+                    $('#UICGcodeVWidget ul.dropdown-menu a:first').trigger('click');
+                }else{
+                    $('#UICGcodeVWidget ul.dropdown-menu a[data-zoomlvl="'+self.settings.settings.plugins.uicustomizer.gcodeZoom()+'"]').trigger('click')
+                }
             }
         }
 
@@ -752,7 +1134,7 @@ $(function() {
             }
 
             // Check for multicam
-            if (OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.hasOwnProperty('multicam') && !$('.UICMultiCamSelector').length){
+            if (OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.hasOwnProperty('multicam') && OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.multicam.multicam_profiles().length > 1 && !$('.UICMultiCamSelector').length ){
                 var multicamSelector = $('<div class="btn-group UICMultiCamSelector UICWidgetSelector"><a class="btn btn-small dropdown-toggle" data-toggle="dropdown" href="#"><span id="UICMultiCamLbl">Cam</span><span class="caret"></span></a><ul class="dropdown-menu"></ul></div>');
                 var ulCamSel = multicamSelector.find('ul');
                 $.each(OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.multicam.multicam_profiles(),function(idx,item){
@@ -908,7 +1290,7 @@ $(function() {
                         // Reload the webcam
                         $('.UICWebCamClick').hide();
                         $('#IUCWebcamContainer div.nowebcam').remove();
-                        $('#IUCWebcamContainer > div').append('<div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate">Loading webcam&hellip;</span></div>');
+                        $('#IUCWebcamContainer > div').append('<div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate text-info">Loading webcam&hellip;</span></div>');
                         $('#IUCWebcamContainerInner').hide();
                         $('#IUCWebcamContainer').show();
                         // Reinit the loader
@@ -929,7 +1311,7 @@ $(function() {
 
             // Set loading
             $('.UICWebCamClick').hide();
-            $('#IUCWebcamContainer > div').append('<div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate">Loading webcam&hellip;</span></div>');
+            $('#IUCWebcamContainer > div').append('<div class="nowebcam text-center"><i class="fas fa-spinner fa-spin"></i> <span class="UIC-pulsate text-info">Loading webcam&hellip;</span></div>');
 
             // HLS cam handling is a bit easier than normal stuff
             if(hlsCam){
@@ -1056,10 +1438,14 @@ $(function() {
                                     $('#UICWebCamFull img').attr('src',streamURL);
                                 }
 
-                            }else if($('#IUCWebcamContainerInner img').attr('src') != streamURL){
+                            }
+
+                            // Check if the url is right - on first load this sometimes breaks on fast webcam streams: https://github.com/LazeMSS/OctoPrint-UICustomizer/issues/82
+                            if($('#IUCWebcamContainerInner img').attr('src') != streamURL){
                                 self.logToConsole("WebCam updated SRC");
                                 $('#IUCWebcamContainerInner img').attr('src',streamURL);
                             }
+
                             // Make sure its shown
                             $('#IUCWebcamContainer > div >div').show();
                             $('#webcam_image').data("isLoaded",true);
@@ -1230,18 +1616,21 @@ $(function() {
         // Set responsive
         self.set_responsiveMode = function(enabled){
             if (enabled){
+                // Append responsive
+                if (!$('link.UICBSResp').length){
+                    $('body').append('<link class="UICBSResp" rel="stylesheet" href="./plugin/uicustomizer/static/css/bootstrap-responsive.css">');
+                }else{
+                    // Make sure responsive is last
+                    var allCSS = $('link[rel="stylesheet"]');
+                    if ((allCSS.length-1) > allCSS.index($('link.UICBSResp'))){
+                        $('link.UICBSResp').appendTo('body');
+                    }
+                }
+
                 $('.UICMainMenu').addClass('nav-collapse')
                 // Skip if active
                 if ($('body').hasClass('UICResponsiveMode')){
                     return true;
-                }
-
-                // Add dynamic viewport
-                $('head').append('<meta id="UICViewport" name="viewport" content="width=device-width, initial-scale=1.0">');
-
-                // Check for touch
-                if (typeof Modernizr !== 'undefined' && Modernizr.touchevents) {
-                    $('body').addClass('UICTouchDevice');
                 }
 
                 // Fix gcode
@@ -1299,9 +1688,6 @@ $(function() {
                 // Remove the id and move it to the new one
                 $('#settings_dialog_menu').removeAttr('id').addClass('UICsettingsMenuOldMenu');
                 $('#UICsettingsMenuNav div.UICsettingsNewMenu').attr('id','settings_dialog_menu');
-                // For restoring
-                $('#settingsTabs').addClass('UICsettingsMOldTabs');
-                $('#UICsettingsNewMenu').attr('id','settingsTabs');;
 
                 // hide the "collapse/responsive" stuff
                 $('#UICsettingsMenuNav a.btn-navbar').hide();
@@ -1364,12 +1750,13 @@ $(function() {
                 $('#navbar > div.navbar-inner > div:first').prepend('<a class="btn btn-navbar collapsed" data-toggle="collapse" data-target=".UICMainMenu"><span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span></a>');
 
                 // Close menu on click
-                $('div.UICMainMenu a:not(.dropdown-toggle)').off('click.UICMainMenu').on('click.UICMainMenu',function(){
+                $('div.UICMainMenu a:not(.dropdown-toggle)').off('mouseup.UICMainMenu').on('mouseup.UICMainMenu',function(event){
                     if ($('div.UICMainMenu').hasClass('in')){
-                        $('#navbar div.navbar-inner a.btn-navbar').trigger('click');
+                        $('div.UICMainMenu').css({'height':'0px'});
+                        $('div.UICMainMenu').removeClass('in');
                     }
+                    return true;
                 });
-
 
                 // Add title to menu items
                 $('div.UICMainMenu > ul.nav > li:not([id^="navbar_plugin"]) > a,li.UICExcludeFromTopIcons > a').each(function(){
@@ -1419,13 +1806,12 @@ $(function() {
             }else{
                 // Allow full menu when not responsive
                 $('.UICMainMenu').removeClass('nav-collapse');
+                $('#UICViewport').remove();
+                $('link.UICBSResp').remove();
                 if (!$('body').hasClass('UICResponsiveMode')){
                     return true;
                 }
-                // Remove meta viewport
-                $('#UICViewport').remove();
                 $('.UICHideTablet').removeClass('UICHideTablet hidden-tablet');
-                $('body').removeClass('UICTouchDevice');
 
                 // Remmove events
                 $('body').off('shown.bs.modal.UICHandler');
@@ -1439,8 +1825,6 @@ $(function() {
 
                 // revert settings menu
                 $('#UICSettingsHeader').remove();
-                $('#settingsTabs').removeAttr('id');
-                $('ul.UICsettingsMOldTabs').attr('id','settingsTabs').removeClass('UICsettingsMOldTabs');
                 $('#settings_dialog_menu').removeAttr('id');
                 $('div.UICsettingsMenuOldMenu').attr('id','settings_dialog_menu').removeClass('UICsettingsMenuOldMenu');
                 $('#UICsettingsMenu li ').each(function(){
@@ -1501,9 +1885,11 @@ $(function() {
             if (enabled){
                 $('body').addClass('UICfixedHeader');
                 $('#navbar').removeClass('navbar-static-top').addClass('navbar-fixed-top')
+                $('#navbar').css('overflow','visible');
             }else{
                 $('body').removeClass('UICfixedHeader');
                 $('#navbar').addClass('navbar-static-top').removeClass('navbar-fixed-top');
+                $('#navbar').css('overflow','');
             }
         }
 
@@ -1634,6 +2020,19 @@ $(function() {
                 // Append if found only
                 if ($('#'+val[0]).length){
                     indexobj[val[0]] = val;
+                    // Old data bug
+                    // No icon if not found
+                    if (indexobj[val[0]][3] == null){
+                        indexobj[val[0]][3] = false;
+                    }
+                    // Default design if not found
+                    if (indexobj[val[0]][4] == null){
+                        indexobj[val[0]][4] = 'textOnly';
+                    }
+                    // Default color if not found
+                    if (indexobj[val[0]][5] == null){
+                        indexobj[val[0]][5] = '#000000';
+                    }
                     listItems.push(val[0]);
                 }
             });
@@ -1653,13 +2052,15 @@ $(function() {
                 // Add any unknown items
                 if (!(indexobj.hasOwnProperty(parid))){
                     listItems.push(parid);
-                    // Default params
+                    // Get default icon design
                     var prevIcon = $(this).find('i');
                     var prevIconName = '';
                     if (prevIcon.length){
                         prevIconName = prevIcon.attr('class');
                     }
-                    indexobj[parid] = [parid,true,false,prevIconName,true,'#000000'];
+                    // ID, Shown,Customlabel,icon class string, tab design =(true,false,iconOnly,textOnly), icon color
+                    // 0 ,   1  ,    2      ,     3           ,      4                                    ,   5
+                    indexobj[parid] = [parid,true,false,prevIconName,'textOnly','#000000'];
                 }
             });
             return [indexobj,listItems];
@@ -1698,7 +2099,7 @@ $(function() {
             }
             // Set color
             var colorclass = {};
-            if (data[5] != undefined){
+            if (data[5] != undefined && data[5] != false){
                 colorclass ={'color':data[5]};
             }
             // On the right or the left hand side icon only
@@ -1746,19 +2147,35 @@ $(function() {
 
         // ------------------------------------------------------------------------------------------------------------------------
         // Inspired by: https://itsjavi.com/fontawesome-iconpicker/
-        self.iconSearchPopover = function(searchNow,callback,addDelete,addColorSelector,startcolor){
-            addDelete = addDelete || true;
-            addColorSelector = addColorSelector || true;
-            startcolor = startcolor || '#000000';
+        self.iconSearchPopover = function(searchNow,callback,addDelete,addColorSelector,startcolor,container,placement){
+            if (addDelete === undefined){
+                addDelete = true;
+            }
+            if (addColorSelector === undefined){
+                addColorSelector = true;
+            }
+            // Set blank start color
+            if (startcolor === undefined){
+                startcolor = false;
+            }
+            if (container === undefined){
+                container = 'body';
+            }
+            // Set placement
+            if (placement === undefined){
+                placement = 'left';
+            }
             if (typeof searchNow == "string"){
                 searchNow = searchNow.replace(/fa-|fas |far |fal |fad |fab |fa /gi,"");
             }
             return {
                 'html': true,
-                'container': '#settings_uicustomizer_tabs',
-                'placement' : 'left',
+                'container': container,
+                'placement' : placement,
                 'title' : function(){
                     var myself = $(this);
+                    // Hack apply class to myself
+                    myself.data('popover').$tip.addClass('UICIconPicker');
                     if (myself.data("frun") != true){
                         myself.data("frun",true);
                         return false;
@@ -1770,13 +2187,16 @@ $(function() {
                         if (searchNow.hasClass('UICIconEmpty')){
                             defaultstr = '';
                         }else{
-                            defaultstr = searchNow.attr('class').replace(/fa-|fas |far |fal |fad |fab |fa /gi,"");
+                            defaultstr = searchNow.attr('class');
                         }
+                    }else if (typeof searchNow == "function"){
+                        defaultstr = searchNow();
                     }
+                    defaultstr = defaultstr.replace(/fa-|fas |far |fal |fad |fab |fa /gi,"");
                     // Convert colors from object or string
-                    var strcolor = "#000000"
+                    var strcolor = false;
                     if (typeof startcolor == "object"){
-                        if (typeof $(startcolor).data('color') == "string"){
+                        if ($(startcolor).data('color') !== undefined){
                             strcolor = $(startcolor).data('color');
                         }else if(typeof $(startcolor).css('color') == "string"){
                             var rgb = $(startcolor).css('color').match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+))?\)$/);
@@ -1785,14 +2205,14 @@ $(function() {
                             }
                             strcolor =  "#" + hexcolor(rgb[1]) + hexcolor(rgb[2]) + hexcolor(rgb[3]);
                         }else{
-                            strcolor = "#000000"
+                            strcolor = false
                         }
                     }else{
-                        var strcolor = startcolor;
+                        strcolor = startcolor;
                     }
 
                     // hide others
-                    $('button.UICTabIcon').not(myself).popover('hide');
+                    $('.UICShowIconPicker').not(myself).popover('hide');
                     // Build main forms
                     var searchInput = $('<input type="search" autocomplete="off" class="UICiconSearchFilter form-control" value="'+defaultstr+'" placeholder="Type to search">');
                     var closebtn = $('<button type="button" class="UICiconSearchClose btn btn-mini pull-right"><i class="fas fa-times"></i></button>');
@@ -1833,18 +2253,21 @@ $(function() {
                                 contentType: 'application/json',
                                 dataType: 'application/json',
                                 headers: {'Accept':'application/json'},
-                                data: JSON.stringify({query: "query { search(version: \"5.13.0\", query: \""+search+"\", first: 35) { label id membership{ free } } }"}),
+                                data: JSON.stringify({query: "query { search(version: \"5.13.0\", query: \""+search+"\", first: 100) { label id membership{ free } } }"}),
                             }).always(function(data){
                                 if (data.status == 200){
                                     try {
                                         var jsonObj = JSON.parse(data.responseText);
                                     }
                                     catch(err) {
+                                        target.html('<div class="text-center UICiconSearchInfo"><i class="fas fa-exclamation-circle"></i> Error searching&hellip;<br><code>Error: Bad JSON</code></div>');
                                         return false;
                                     }
                                     $this.data('prevSearch',search);
                                     // Trigger the icon refresher
                                     self._iconSearchBuildResults(jsonObj,target,myself,search,callback);
+                                }else{
+                                    target.html('<div class="text-center UICiconSearchInfo"><i class="fas fa-exclamation-circle"></i> Error searching&hellip;<hr/><code>Error: '+data.status +' ('+data.statusText +')</code></div>');
                                 }
                             })
                             $this.data('prevAjax',xhr);
@@ -1858,15 +2281,34 @@ $(function() {
                         return false;
                     })
                     var inputcontainer = $('<div class="UICIconPickHeader"/>').append(searchInput);;
-                     // Add color selector
+
+                    // Add color selector
                     if (addColorSelector){
-                        var colorSelector = $('<label class="btn UICTabIconColorLbl"><i class="fas fa-eye-dropper" style="color:'+strcolor+'"></i><input type="color" class="UICTabIconColor btn" value="'+strcolor+'"></label>');
+                        var colorStyle = 'style="color:'+strcolor+'"';
+                        var preColor = 'value="'+strcolor+'"';
+                        if (strcolor == false){
+                            colorStyle = '';
+                            preColor = '';
+                        }
+                        var colorSelector = $('<label class="btn UICTabIconColorLbl" title="Set icon color"><i class="fas fa-eye-dropper" '+colorStyle+'></i><input type="color" class="UICTabIconColor btn" '+preColor+'></label>');
                         colorSelector.find('.UICTabIconColor').on('change input',function(){
+                            $('.UICTabIconClear').removeClass('active')
                             $(this).data('color',$(this).val());
                             $(this).prev().css('color',$(this).val());
                             $(this).closest('div.popover').find('.UICiconSearchResults').css('color',$(this).val());
                         });
                         inputcontainer.append(colorSelector);
+                        var noColor = $('<button class="btn UICTabIconClear" title="No icon color is applied"><span class="UIC-fa-stack"><i class="fas fa-slash"></i> <i class="fas fa-eye-dropper fa-stack-1x"></i></span></button>');
+                        noColor.on('click',function(){
+                            $('.UICTabIconColor').data('color',false);
+                            $('.UICTabIconColor').prev().css('color','inherit');
+                            $(this).addClass('active');
+                            $(this).closest('div.popover').find('.UICiconSearchResults').css('color','inherit');
+                        });
+                        if (strcolor == false){
+                            noColor.addClass('active');
+                        }
+                        inputcontainer.append(noColor);
                         inputcontainer.addClass('input-append');
                     }
                     // Delete/trash
@@ -1874,7 +2316,7 @@ $(function() {
                         var delbtn = $('<button type="button" title="Dont select an icon, blank" class="btn"><i class="fas fa-trash"></i></button>');
                         delbtn.on('click',function(){
                             if (typeof callback == "function"){
-                                callback(false);
+                                callback(false,false);
                             }
                             myself.popover('hide');
                         });
@@ -1948,9 +2390,126 @@ $(function() {
             });
         }
 
+
+        // Load themes
+        self.loadSettingsThemes = function(responseData,baseURL){
+            if (responseData == null){
+                $('#settings_uicustomizer_themesContent').html('<div class="UIC-pulsate text-info text-center">Loading themes&hellip;</div>');
+                $.ajax({
+                    url: self.ThemesExternalURL+'themes.json',
+                    success: function(response){
+                        self.loadSettingsThemes(response,self.ThemesExternalURL);
+                    },
+                    // Try local as a workaround
+                    error: function (request, status, error) {
+                         $.ajax({
+                            url: self.ThemesInternalURL+'../themes.json',
+                            success: function(response){
+                                self.loadSettingsThemes(response,self.ThemesInternalURL);
+                            },
+                            error: function (request, status, error) {
+                                alert("FAILED TO LOAD THEMES!");
+                            }
+                        });
+                    }
+                });
+                return;
+            }
+            self.ThemesBaseURL = baseURL;
+            var themesHTML = '<ul class="thumbnails">';
+            var template = '\
+            <li class="span4" data-uictheme="[key]">\
+                <a title="Click to select theme" href="#" class="UICsetTheme thumbnail"><img src="'+self.ThemesBaseURL+'thumbs/[key].png"/></a>\
+                <p><a href="[org]" class="UICMargLeft pull-right btn-mini btn" target="_blank">Source</a><button class="btn-mini btn btn-primary UICsetTheme pull-right">Select</button>\
+                <strong>[name]</strong><br><small>[desc]</small>\
+                </p>\
+            </li>';
+            // Sort result
+            var keys = Object.keys(responseData);
+            keys.sort();
+            // Put default last
+            keys.push(keys.splice(keys.indexOf('default'), 1)[0]);
+
+            // Parse them
+            $.each(keys,function(id,key){
+                var addThis = template+'';
+                addThis = addThis.replaceAll('\[key\]',key);
+                theme = responseData[key];
+                $.each(theme,function(key,attr){
+                    if (key == "org"){
+                        if (attr == false){
+                            attr = '#;" style="display:none" ';
+                        }else{
+                            attr = encodeURI(attr);
+                        }
+                    }else{
+                        attr = $('<div/>').text(attr).html();
+                    }
+                    addThis = addThis.replace('\['+key+'\]',attr);
+                });
+                themesHTML += addThis;
+            });
+            themesHTML += '</ul>';
+            $('#settings_uicustomizer_themesContent').html(themesHTML);
+
+            // Click handler
+            $('.UICsetTheme').off('click').on('click',function(event){
+                var selectedTheme = $(this).closest('li').data('uictheme');
+                // Update preview
+                if (self.previewOn){
+                    self.set_theme(selectedTheme,true);
+                }
+                self.setThemeSelected(selectedTheme);
+                return false;
+            });
+            // Set themes when done
+            self.setThemeSelected();
+        }
+
+        // Set theme selected
+        self.setThemeSelected = function(theme){
+            if (theme == undefined){
+                theme = self.settings.settings.plugins.uicustomizer.theme();
+            }
+            // Do we have the requested theme - if not then use default
+            if (!$('#settings_uicustomizer_themesContent li[data-uictheme="'+theme+'"]').length){
+                theme = "default";
+            }
+            $('#settings_uicustomizer_themesContent li').removeClass('UICThemeSelected');
+            $('#settings_uicustomizer_themesContent li[data-uictheme="'+theme+'"]').addClass('UICThemeSelected');
+        }
+
         // ------------------------------------------------------------------------------------------------------------------------
         // Settings handler
         self.onSettingsShown = function() {
+            self.saved = false;
+            self.previewHasBeenOn = false;
+            var settingsPlugin = self.settings.settings.plugins.uicustomizer;
+
+            // Load themes
+            if (!self.ThemesLoaded){
+                $('#settings_plugin_uicustomizer a[href="#settings_uicustomizer_themes"]').one('click',function(){
+                    if (self.getStorage("getThemesApproved") == 1){
+                        // Dont load again
+                        self.ThemesLoaded = true;
+                        self.loadSettingsThemes(null);
+                        return;
+                    }
+                    // Show warning
+                    $('#settings_uicustomizer_themesContent').html('<div class="alert alert-info">\
+                    <strong>Information regarding themes</strong>\
+                    <p>In order to download new and updated themes UI Customizer will download the themes, using a secure connection, from <a href="'+self.ThemesExternalURL+'" target="_blank">'+self.ThemesExternalURL+'</a>.</p><p>No personal data is sent to this URL. The only data being sent is your public IP address due to the nature of the internet.</p><p>Click "Continue" to downlad themes.</p>\
+                    <button class="btn btn-success">Continue</button>\
+                    </div>').find('button').one('click',function(){
+                        self.setStorage("getThemesApproved",1);
+                        self.ThemesLoaded = true;
+                        self.loadSettingsThemes(null);
+                    });
+
+                });
+            }else{
+                self.setThemeSelected();
+            }
             self.settingsBeenShown = true;
             $('#UICReportBug').removeData('updateCheck');
             $('#UICReportBug').off('click').on('click',function(){
@@ -1964,7 +2523,7 @@ $(function() {
                     $this.attr('disabled',true).addClass('disabled');
                     $this.data('updateCheck',"pending");
                     // Check for updates
-                    $.get("/plugin/softwareupdate/check?force=true", function(data) {
+                    $.get("./plugin/softwareupdate/check?force=true", function(data) {
                         // We have an update then show the real dialog
                         if (data.hasOwnProperty('information') && data.information.hasOwnProperty('uicustomizer') && data.information.uicustomizer.updateAvailable){
                             self.logToConsole("Updates found");
@@ -2030,10 +2589,6 @@ $(function() {
             $('#sidebar div.accordion-group').each(function(){
                 sidebarItems.push('#'+$(this).attr('id'));
             });
-
-            self.saved = false;
-            self.previewHasBeenOn = false;
-            var settingsPlugin = self.settings.settings.plugins.uicustomizer;
 
             // Check for navbar
             if (typeof OctoPrint.coreui.viewmodels.settingsViewModel.settings.plugins.navbartemp !== "undefined"){
@@ -2120,8 +2675,8 @@ $(function() {
             $.each(listItems,function(idx,val){
                 // PARAMS:
                 // [parid,true,false,'icon','left']
-                // ID, Shown,Customlabel,tab design =true,false,iconOnly,textOnly
-                // 0 ,   1  ,    2      , 3, 4
+                // ID, Shown,Customlabel,icon class string, tab design =(true,false,iconOnly,textOnly), icon color
+                // 0 ,   1  ,    2      ,     3           ,      4                                    ,   5
                 // Build values
                 var target = $('#'+val).find('a');
                 var targetLink = target.attr('href');
@@ -2138,13 +2693,12 @@ $(function() {
                     custname = localObj[2];
                 }
                 // Build colors
-                var color = "";
-                var colorData = "#000000";
+                var color = '';
+                var colorData = false;
                 if (localObj[5] != undefined){
                     colorData = localObj[5];
                     color = 'style="color:'+localObj[5]+'"';
                 }
-
                 // Default is empty icon
                 var icon = 'fas fa-search UICIconEmpty';
                 var disbaledLI = ' disabled';
@@ -2165,7 +2719,7 @@ $(function() {
                                 <button class="UICDragVHandle btn" type="button" title="Sort item"><i class="fas fa-arrows-alt-v"></i></button>\
                                 <input title="Enter tab name, blank = default" class="input-medium UICTabNameInput" placeholder="Name: '+orgName+'" type="text" value="'+custname+'">\
                                 <button class="btn UICTabToggle" type="button" title="Hide/Show tab"><i class="fas '+classVis+'"></i></button>\
-                                <button class="btn UICTabIcon" type="button"><i class="'+icon+'" '+color+' data-color="'+colorData+'"></i></button><div class="btn-group">\
+                                <button class="btn UICTabIcon UICShowIconPicker" type="button"><i class="'+icon+'" '+color+' data-color="'+colorData+'"></i></button><div class="btn-group">\
                                 <ul class="dropdown-menu UICTabDesign">\
                                     <li class="UICTabIconReq'+disbaledLI+'"><a href="#" data-design="true"><span class="visible-phone"><i class="fas fa-align-left UICPadRight"></i><i class="fas fa-heading"></i></span><span class="hidden-phone">Icon+Text</span></a></li>\
                                     <li class="UICTabIconReq'+disbaledLI+'"><a href="#" data-design="false"><span class="visible-phone"><i class="fas fa-heading UICPadRight"></i><i class="fas fa-align-right"></i></span><span class="hidden-phone">Text+Icon</span></a></li>\
@@ -2180,7 +2734,7 @@ $(function() {
                 // Toggle tabs on/off
                 newTab.find('button.UICTabToggle').off('click').on('click',function(){
                     // Hide all popovers
-                    $('button.UICTabIcon').popover('hide');
+                    $('.UICShowIconPicker').popover('hide');
                     var icon = $(this).find('i');
                     icon.toggleClass('fa-eye fa-eye-slash');
                     if (self.previewOn){
@@ -2203,7 +2757,7 @@ $(function() {
                 // Change tab text
                 newTab.find('input.UICTabNameInput').off('blur keyup').on('blur keyup',function(){
                     // Hide all popovers
-                    $('button.UICTabIcon').popover('hide');
+                    $('.UICShowIconPicker').popover('hide');
                     if (self.previewOn){
                         // Update
                         var tabData = self.buildCustomTabsSave();
@@ -2216,7 +2770,7 @@ $(function() {
                 newTab.find('button.UICTabIcon').removeData("frun").popover(
                     self.iconSearchPopover(newIconSrc,function(newicon,newcolor){
                         if (newcolor == null || newicon == false){
-                            newcolor = '#000000';
+                            newcolor = false;
                         }
                         newIconSrc.data('color',newcolor);
                         // Delete
@@ -2228,24 +2782,28 @@ $(function() {
                         }else{
                             newTab.find('ul.UICTabDesign li.UICTabIconReq').removeClass('disabled');
                             newIconSrc.attr('class',newicon);
-                            newIconSrc.css({'color':newcolor});
+                            if (newcolor != false){
+                                newIconSrc.css({'color':newcolor});
+                            }else{
+                                newIconSrc.css({'color':''});
+                            }
                         }
                         if (self.previewOn){
                              // Update
                             var tabData = self.buildCustomTabsSave();
                             self.set_mainTabsCustomize(true,tabData);
                         }
-                    },true,true,newIconSrc)
+                    },true,true,newIconSrc,'#settings_uicustomizer_tabs','left')
                 ).attr('Title','Click to change icon');
 
 
                 // Change icon design
                 newTab.find('button.dropdown-toggle').off('click').on('click',function(){
                      // Hide all popovers
-                    $('button.UICTabIcon').popover('hide');
+                    $('.UICShowIconPicker').popover('hide');
                 });
-                newTab.find('ul.UICTabDesign li a').off('click').on('click',function(){
-                    if ($(this).parent().hasClass('disabled')){
+                newTab.find('ul.UICTabDesign li a').off('click').on('click',function(event,force){
+                    if (force !== true && $(this).parent().hasClass('disabled')){
                         return true;
                     }
                     newTab.find('ul.UICTabDesign li.active').removeClass('active');
@@ -2262,7 +2820,7 @@ $(function() {
                 $('#settings_uicustomizer_tabs_look ').append(newTab);
 
                 // update selector
-                newTab.find('ul.UICTabDesign li a[data-design="'+localObj[4]+'"]').trigger('click');
+                newTab.find('ul.UICTabDesign li a[data-design="'+localObj[4].toString()+'"]').trigger('click',[true]);
             })
 
             // sort the tabs
@@ -2345,16 +2903,31 @@ $(function() {
 
             // Run trough each col
             $(colsTemp).each(function(colid,items){
+                // Skip if broken
+                if (typeof items != "object"){
+                    return;
+                }
                 // add to the editor
                 $.each(items, function(widgetid,shown){
+                    if (typeof widgetid != "string"){
+                        return;
+                    }
                     // prefix removal
                     if (widgetid.charAt(0) == "_"){
                         self.logToConsole("Slicing 3 chars of: " + widgetid);
                         widgetid = widgetid.slice(3);
                         self.logToConsole("new widgetid: " + widgetid);
                     }
-                    self.logToConsole('Adding widget "' + widgetid + '"('+shown() + ") to selector");
-                    self.addToSorter(colid,widgetid,shown());
+                    // This is bad
+                    if ($(widgetid).length == 0){
+                        self.logToConsole("Skipping widgetid: " + widgetid + ", not found");
+                        return;
+                    }
+                    if (typeof shown == "function"){
+                        shown = shown();
+                    }
+                    self.logToConsole('Adding widget "' + widgetid + '"('+shown + ") to selector");
+                    self.addToSorter(colid,widgetid,shown);
                     // Remove from add defaults
                     var arpos = $.inArray(widgetid,sidebarItems);
                     if (arpos >= 0){
@@ -2472,6 +3045,11 @@ $(function() {
             // Set all empty to minimum
             fixMinMax();
 
+            // Hide icon pickers
+            $('#settings_plugin_uicustomizer ul.nav.nav-pills a').off('click.uicus').on('click.uicus',function(){
+                $('.UICShowIconPicker').popover('hide');
+            });
+
             // Toggle preview on/off
             self.previewOn = false;
             $('#UICRealPrevCheck').off('click.uicusPrev').on('click.uicusPrev',function(){
@@ -2484,6 +3062,11 @@ $(function() {
 
                 if (self.previewOn){
                     self.previewHasBeenOn = true;
+
+                    // Set theme when updating it all
+                    var themeSel = $('#settings_uicustomizer_themesContent li.UICThemeSelected').data('uictheme');
+                    self.set_theme(themeSel,true);
+
                     // Update all
                     $('#settings_plugin_uicustomizer input:checkbox[data-settingtype]').trigger('change.uicus');
                     var colData = self.buildColumns(false);
@@ -2491,6 +3074,7 @@ $(function() {
 
                     // Trigger us self if checking anything but our own menu item
                     $('#settingsTabs a, #UICsettingsMenu a:not(.dropdown-toggle)').not('#settings_plugin_uicustomizer_link a').off('click.uicusPrev').one('click.uicusPrev',function(){
+                        $('.UICShowIconPicker').popover('hide');
                         if (self.previewOn){
                             $('#UICRealPrevCheck').trigger('click.uicusPrev');
                         }
@@ -2509,6 +3093,10 @@ $(function() {
                 }else{
                     // Remove preview toggles and restore the views when turning preview off/on
                     if (self.previewHasBeenOn){
+                        // Restore theme
+                        self.set_theme(settingsPlugin.theme(),false);
+
+                        // Restore
                         $('.UICPreviewRestore[data-orgvis]').each(function(){
                             var item = $($(this).data('id'))
                             if ($(this).data('orgvis')){
@@ -2529,10 +3117,10 @@ $(function() {
             $('#settings_plugin_uicustomizer input:checkbox[data-settingtype]').on('change.uicus',function(){
                 var settingType = $(this).data('settingtype');
                 if (self.previewOn && typeof self['set_'+settingType] == "function"){
-                    if ($(this).data('clickthis') !== undefined){
-                        $($(this).data('clickthis')).trigger('click');
-                    }
                     self['set_'+settingType]($(this).is(':checked'));
+                    if ($(this).data('previewtab') !== null){
+                        $('#'+$(this).data('previewtab')+ ' a').trigger('click');
+                    }
                  }
             });
         }
@@ -2549,7 +3137,11 @@ $(function() {
                 title = $.trim(accord.text());
             }
             if (title == ""){
-                title = $(item).attr('id');
+                if ($(item).attr('id') != undefined){
+                    title = $(item).attr('id')+"";
+                }else{
+                    title= "Unknown";
+                }
             }
             if (title.length > 25){
                 title = title.slice(0,25)+"&hellip;";
@@ -2558,7 +3150,7 @@ $(function() {
              // Set checkbox and eye icon
             var checked = '';
             var checkclass = 'fa-eye-slash'
-            if (visible){
+            if (visible || $(item).is(':visible')){
                 checked = ' checked';
                 checkclass = 'fa-eye';
             }
@@ -2587,6 +3179,11 @@ $(function() {
                 // Get the data
                 self.saved = true;
                 var colData = self.buildColumns(true);
+                if (colData[0]().length == 0 || $.isEmptyObject(colData[0]()[0])){
+                    console.log(colData);
+                    alert("Critical failure saving UI Customizer settings - not saved!\nPlease look in the developer console.");
+                    return false;
+                }
                 var topIconsSort = $('#settings_uicustomizer_topicons_container > div').map(function(){return $(this).data('tid')}).get();
 
                 // Save and update
@@ -2595,7 +3192,15 @@ $(function() {
                 self.settings.settings.plugins.uicustomizer.widths = colData[1];
                 self.settings.settings.plugins.uicustomizer.mainTabsCustomize = ko.observable($('#UICMainTabCustomizerToggle').is(':checked'));
                 self.settings.settings.plugins.uicustomizer.mainTabs = ko.observableArray(self.buildCustomTabsSave());
-                self.UpdateLayout(self.settings.settings.plugins.uicustomizer);
+
+                // Set theme into settings and storage
+                var theme = $('#settings_uicustomizer_themesContent li.UICThemeSelected').data('uictheme');
+                if (self.ThemesBaseURL != self.ThemesInternalURL){
+                    self.settings.settings.plugins.uicustomizer.themeLocal(false);
+                }else{
+                    self.settings.settings.plugins.uicustomizer.themeLocal(true);
+                }
+                self.settings.settings.plugins.uicustomizer.theme(theme);
 
                 var streamURL = self.settings.webcam_streamUrl();
                 if (/.m3u8/i.test(streamURL)){
@@ -2614,7 +3219,7 @@ $(function() {
             if (!self.getReturnData) return;
 
             // Gcode widget on and visible
-            if (!$('#UICGcodeVWidgetContainer.collapse.in').length || !$('#gcode_canvas').length || typeof OctoPrint.coreui.viewmodels != "object") return
+            if (!$('#UICGcodeVWidgetContainer.collapse.in').length || !$('#gcode_canvas').length || typeof OctoPrint.coreui.viewmodels.gcodeViewModel != "object") return;
 
             // load the file is needed
             if (OctoPrint.coreui.viewmodels.gcodeViewModel.needsLoad){
@@ -2629,8 +3234,8 @@ $(function() {
             var clonecon = clone.getContext('2d');
             var source = $('#gcode_canvas')[0];
             var factor = $('#UICGcodeVWidget').data('zoomlvl');
-            clone.width =  source.width/factor
-            clone.height =  source.height/factor
+            clone.width = source.width/factor
+            clone.height = source.height/factor
             clonecon.drawImage( source, 0, 0, clone.width, clone.height);
         }
 
@@ -2644,8 +3249,10 @@ $(function() {
                 self.previewHasBeenOn = false;
                 // Cancel the data to revert settings
                 OctoPrint.coreui.viewmodels.settingsViewModel.cancelData();
-                self.UpdateLayout(self.settings.settings.plugins.uicustomizer);
             }
+            // Update
+            self.UpdateLayout(self.settings.settings.plugins.uicustomizer);
+
             // Always hide previewed stuff
             $('.UICpreviewHide').hide();
             $('.UICpreviewHide').removeClass('UICpreviewHide');
@@ -2665,7 +3272,7 @@ $(function() {
             // Cleanup to prevent listners etc
             $('#settings_uicustomizer_tabs_look').empty();
             // Remove popovers
-            $('button.UICTabIcon').popover('hide');
+            $('.UICShowIconPicker').popover('hide');
             $('#settings_uicustomizer_tabs div.popover').remove();
 
 
@@ -2678,6 +3285,30 @@ $(function() {
 
         // ------------------------------------------------------------------------------------------------------------------------
 
+        self.getStyleSheet = function(cssUrlPart){
+            var cssSel = $('link[href*="'+cssUrlPart+'"][rel="stylesheet"]');
+            if (cssSel.length){
+                return cssSel[0];
+            }
+            return null;
+        }
+
+        self.setStorage = function(cname,cvalue){
+            if (!Modernizr.localstorage) return;
+            if (window.location.pathname != "/"){
+                cname = window.location.pathname+cname;
+            }
+            localStorage['plugin.uicustomizer.'+cname] = cvalue;
+        }
+
+        self.getStorage = function(cname){
+            if (!Modernizr.localstorage) return undefined;
+            if (window.location.pathname != "/"){
+                cname = window.location.pathname+cname;
+            }
+            return localStorage['plugin.uicustomizer.'+cname];
+        }
+
         self.findPluginData = function(pluginKey){
             var returnItem = null;
             $.each(OctoPrint.coreui.viewmodels.pluginManagerViewModel.plugins.allItems,function(x,item){
@@ -2688,7 +3319,6 @@ $(function() {
             });
             return returnItem;
         }
-
     }
 
     // This is how our plugin registers itself with the application, by adding some configuration information to

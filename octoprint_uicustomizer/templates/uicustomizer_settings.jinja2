@@ -4,6 +4,9 @@
             <a data-toggle="tab" href="#settings_uicustomizer_general">{{ _('General') }}</a>
         </li>
         <li>
+            <a data-toggle="tab" href="#settings_uicustomizer_themes">{{ _('Themes') }}</a>
+        </li>
+        <li>
             <a data-toggle="tab" href="#settings_uicustomizer_layout">{{ _('Layout') }}</a>
         </li>
         <li>
@@ -35,23 +38,36 @@
                         <div class="controls">
                             <label class="checkbox" title="Should the main dropdown menu be a single compact menu, only used when using responsive mode"><input data-bind="checked: settings.plugins.uicustomizer.compactMenu" data-settingtype="compactMenu" type="checkbox"> {{ _('Compact menu') }}</label>
                         </div>
+                        <div class="controls">
+                            <label class="checkbox" title="Maximize the main gcode viewer to take up as much space as possible"><input data-bind="checked: settings.plugins.uicustomizer.gcodeFullWidth" data-settingtype="gcodeFullWidth" data-previewtab="gcode_link" type="checkbox"> {{ _('Gcode full-size') }}</label>
+                        </div>
+                         <div class="controls">
+                            <label class="checkbox" title="Maximize the files selector to show as many files as possible"><input data-bind="checked: settings.plugins.uicustomizer.filesFullHeight" data-settingtype="filesFullHeight" data-previewtab="gcode_link" type="checkbox"> {{ _('Maximize Files height') }}</label>
+                        </div>
                     </div>
                     <div class="span6">
                         <div class="controls">
                             <label class="checkbox" title="Should the entire screen width be used or not"><input data-bind="checked: settings.plugins.uicustomizer.fluidLayout" data-settingtype="fluidLayout" type="checkbox"> {{ _('Fluid/full width layout') }}</label>
                         </div>
                         <div class="controls">
-                            <label class="checkbox" title="Hide temperature background graphics"><input data-bind="checked: settings.plugins.uicustomizer.hideGraphBackground" data-clickthis="#temp_link a" data-settingtype="hideGraphBackground" type="checkbox"> {{ _('Hide temp. graph background') }}</label>
+                            <label class="checkbox" title="Hide temperature background graphics"><input data-bind="checked: settings.plugins.uicustomizer.hideGraphBackground" data-settingtype="hideGraphBackground" data-previewtab="temp_link" type="checkbox"> {{ _('Hide temp. graph background') }}</label>
                         </div>
                         <div class="controls">
-                            <label class="checkbox" title="Hide the main camera - only acive if the webcam in the wiget is enabled"><input data-bind="checked: settings.plugins.uicustomizer.hideMainCam" data-clickthis="#control_link a" data-settingtype="hideMainCam" type="checkbox"> {{ _('Hide main camera') }}</label>
+                            <label class="checkbox" title="Hide the main camera - only acive if the webcam in the wiget is enabled"><input data-bind="checked: settings.plugins.uicustomizer.hideMainCam" data-settingtype="hideMainCam" data-previewtab="control_link"  type="checkbox"> {{ _('Hide main camera') }}</label>
                         </div>
                         <div class="controls">
                             <label class="checkbox" title="Will add an zoom icon to the webcam live feed that will popup out the webcam video feed into a floating resizeable overlay"><input data-bind="checked: settings.plugins.uicustomizer.addWebCamZoom" data-settingtype="addWebCamZoom" type="checkbox"> {{ _('Zoom/float webcam icon') }}</label>
                         </div>
+                        <div class="controls">
+                            <label class="checkbox" title="Compress the temperature controls inputs"><input data-bind="checked: settings.plugins.uicustomizer.compressTempControls" data-settingtype="compressTempControls" data-previewtab="temp_link" type="checkbox"> {{ _('Compress temp. controls') }}</label>
+                        </div>
                     </div>
                 </div>
             </fieldset>
+        </div>
+         <div class="tab-pane" id="settings_uicustomizer_themes">
+            <h4>{{ _('Themes') }}</h4>
+            <div id="settings_uicustomizer_themesContent"></div>
         </div>
         <div class="tab-pane" id="settings_uicustomizer_layout">
             <div class="help-block pull-right">
@@ -83,6 +99,7 @@
                     </div>
                 </div>
             </fieldset>
+            <div class="help-block">Press and drag to arrange a item/widget between columns. Click <i class="fas fa-eye"></i> to hide/show item/widget</div>
         </div>
         <div class="tab-pane" id="settings_uicustomizer_tabs">
             <h4>{{ _('Main tabs') }}</h4>
@@ -124,6 +141,9 @@
                     </div>
                 </div>
             </div>
+            <br>
+            <label>Custom CSS</label>
+            <textarea class="UICCustomCSS" class="block monospace" data-bind="value: settings.plugins.uicustomizer.customCSS"></textarea>
         </div>
     </div>
     <div class="UICReportBug"><a class="btn btn-mini btn-info" id="UICReportBug"><i class="fas fa-bug UICPadRight"></i>Report a bug</a></div>
